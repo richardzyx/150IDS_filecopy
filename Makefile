@@ -43,7 +43,7 @@ C150AR = $(C150LIB)c150ids.a
 LDFLAGS = 
 INCLUDES = $(C150LIB)c150dgmsocket.h $(C150LIB)c150nastydgmsocket.h $(C150LIB)c150network.h $(C150LIB)c150exceptions.h $(C150LIB)c150debug.h $(C150LIB)c150utility.h
 
-all: nastyfiletest makedatafile sha1test
+all: nastyfiletest makedatafile sha1test fileserver
 
 
 #
@@ -64,6 +64,8 @@ sha1test: sha1test.cpp
 makedatafile: makedatafile.cpp
 	$(CPP) -o makedatafile makedatafile.cpp 
 
+fileserver: fileserver.cpp $(C150AR) $(INCLUDES)
+	$(CPP) -o fileserver $(CPPFLAGS) fileserver.cpp $(C150AR)
 #
 # To get any .o, compile the corresponding .cpp
 #
