@@ -1,0 +1,2 @@
+THIS IS LOG FILE: GRADELOG.nastyfiletest.2016:02:20_16:08:50.txt
+Grading log started on 02/20/2016 16:08:50.625226 Command line = [./nastyfiletest 5 SRC TARGET]
