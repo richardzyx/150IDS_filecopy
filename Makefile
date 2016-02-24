@@ -65,7 +65,7 @@ makedatafile: makedatafile.cpp
 	$(CPP) -o makedatafile makedatafile.cpp 
 
 fileserver: fileserver.cpp $(C150AR) $(INCLUDES)
-	$(CPP) -o fileserver $(CPPFLAGS) fileserver.cpp $(C150AR)
+	$(CPP) -o fileserver $(CPPFLAGS) fileserver.cpp $(C150AR) -lssl
 #
 # To get any .o, compile the corresponding .cpp
 #
