@@ -20,7 +20,7 @@ using namespace C150NETWORK;
 bool isFile(string *fname);
 void checkDirectory(char *dirname);
 void checkFiles(C150DgmSocket *sock, char *targetDir);
-void computeSha(string fileName);
+void computeSha(string fileName, char *targetDir);
 
 int
 main(int argc, char *argv[])
@@ -78,7 +78,7 @@ void checkFiles(C150DgmSocket* sock, char *targetDir)
     
        	   	 // do the copy -- this will check for and
         	 // skip subdirectories
-        	 computeSha(sourceFile->d_name);
+        	 computeSha(sourceFile->d_name, targetDir);
         }
         closedir(TARGET);
 }
@@ -97,13 +97,14 @@ checkDirectory(char *dirname) {
   }
 }
 
-void computeSha(string fileName)
+void computeSha(string fileName, char *targetDir)
 {
+	std::string path = targetDir;
 	ifstream *t;
 	stringstream *buffer;
 	unsigned char obuf[20];
-	printf ("SHA1 (\"%s\") = ", fileName.c_str());
-	t = new ifstream(fileName.c_str());
+	printf ("SHA1 (\"%s\") = ", (path+fileName).c_str());
+	t = new ifstream((path+fileName).c_str());
 	buffer = new stringstream;
 	*buffer << t->rdbuf();
 	SHA1((const unsigned char *)buffer->str().c_str(),
