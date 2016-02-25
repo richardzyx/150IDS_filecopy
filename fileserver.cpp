@@ -17,10 +17,9 @@
 
 using namespace C150NETWORK;
 
-bool isFile(string *fname);
 void checkDirectory(char *dirname);
-void checkFiles(C150DgmSocket *sock, char *targetDir);
-void computeSha(string fileName, char *targetDir);
+string checkFiles(C150DgmSocket *sock, char *targetDir, string fileName);
+string computeSha(string fileName, char *targetDir);
 
 int
 main(int argc, char *argv[])
@@ -48,9 +47,21 @@ main(int argc, char *argv[])
 			incomingMessage[readlen] = '\0';
 			string incoming(incomingMessage);
 			cleanString(incoming);
-			checkFiles(sock, argv[2]);
-			string response = "Received " + incoming;
+			string response = incoming + '/' + checkFiles(sock,
+							 argv[2], incoming);
 			sock -> write(response.c_str(), response.length()+1);
+			readlen = sock -> read(incomingMessage, sizeof(incomingMessage)-1);
+			fprintf(stderr, "Incoming: %s", incomingMessage);
+			cout << incoming << '\n';
+			if (incomingMessage == (incoming + "/SUCCESS")
+                                 || incomingMessage == (incoming + "/FAILURE" 
+								))
+			{	
+				fprintf(stderr, "fssdfwdsdfsdsdf\n");	
+				string finalAck = incoming + "/OK";
+				sock -> write(finalAck.c_str(), 
+					finalAck.length()+1);
+			}
 			
 		}
 	}
@@ -59,28 +70,29 @@ main(int argc, char *argv[])
 	}
 }
 
-void checkFiles(C150DgmSocket* sock, char *targetDir)
+string checkFiles(C150DgmSocket* sock, char *targetDir, string fileName)
 {
 	checkDirectory(targetDir);
 	DIR *TARGET;
-	struct dirent *sourceFile;
+//	struct dirent *sourceFile;
 	TARGET = opendir(targetDir);
 	if (TARGET == NULL) {
    		fprintf(stderr,"Error opening source directory %s\n", 
 						targetDir);
    		exit(8);
  	}
-  	while ((sourceFile = readdir(TARGET)) != NULL) {
+  //	while ((sourceFile = readdir(TARGET)) != NULL) {
    		// skip the . and .. names
-        	if ((strcmp(sourceFile->d_name, ".") == 0) ||
-            	    (strcmp(sourceFile->d_name, "..")  == 0 ))
-          	continue;          // never copy . or ..
+       // 	if ((strcmp(sourceFile->d_name, ".") == 0) ||
+       //     	    (strcmp(sourceFile->d_name, "..")  == 0 ))
+       //   	continue;          // never copy . or ..
     
        	   	 // do the copy -- this will check for and
         	 // skip subdirectories
-        	 computeSha(sourceFile->d_name, targetDir);
-        }
+        string response = computeSha(fileName, targetDir);
+     //	}
         closedir(TARGET);
+	return response;
 }
 
 void
@@ -97,9 +109,12 @@ checkDirectory(char *dirname) {
   }
 }
 
-void computeSha(string fileName, char *targetDir)
+string computeSha(string fileName, char *targetDir)
 {
+	char sha1hex[40];
 	std::string path = targetDir;
+	//add '/' to end of path if it is not there
+	if(path[path.length() - 1] != '/') path += '/';
 	ifstream *t;
 	stringstream *buffer;
 	unsigned char obuf[20];
@@ -111,9 +126,11 @@ void computeSha(string fileName, char *targetDir)
 	     (buffer->str()).length(), obuf);
         for (int i = 0; i < 20; i++)
         {
-        	printf ("%02x", (unsigned int) obuf[i]);
+        	sprintf (sha1hex + (i*2), "%02x", (unsigned int) obuf[i]);
         }
         printf ("\n");
         delete t;
         delete buffer;
+	std::string sha1 = sha1hex;
+	return sha1;
 }
