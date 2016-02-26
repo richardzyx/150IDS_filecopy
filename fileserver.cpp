@@ -26,9 +26,9 @@ main(int argc, char *argv[])
 {
 	ssize_t readlen;
 	char incomingMessage[512];
-	int nastiness;
-	if(argc != 3){
-		fprintf(stderr, "Correct syntax is: %s <nastiness_number> <target_directory>\n", argv[0]);
+	int networkNastiness;
+	if(argc != 4){
+		fprintf(stderr, "Correct syntax is: %s <networknastiness> <filenastiness> <target_directory>\n", argv[0]);
 			exit(1);	
 	}
 	if (strspn(argv[1], "0123456789") != strlen(argv[1])) {
@@ -36,9 +36,9 @@ main(int argc, char *argv[])
 		fprintf(stderr, "Correct syntax is: %s <nastiness_number>\n", argv[0]);
 		exit(4);
 	}
-	nastiness = atoi(argv[1]);
+	networkNastiness = atoi(argv[1]);
 	try {
-		C150DgmSocket *sock = new C150NastyDgmSocket(nastiness);
+		C150DgmSocket *sock = new C150NastyDgmSocket(networkNastiness);
 		while(1){
 			readlen = sock -> read(incomingMessage, sizeof(incomingMessage)-1);
 			if (readlen ==0) {
@@ -47,21 +47,33 @@ main(int argc, char *argv[])
 			incomingMessage[readlen] = '\0';
 			string incoming(incomingMessage);
 			cleanString(incoming);
-			string response = incoming + '/' + checkFiles(sock,
-							 argv[2], incoming);
-			sock -> write(response.c_str(), response.length()+1);
-			readlen = sock -> read(incomingMessage, sizeof(incomingMessage)-1);
-			fprintf(stderr, "Incoming: %s", incomingMessage);
-			cout << incoming << '\n';
-			if (incomingMessage == (incoming + "/SUCCESS")
-                                 || incomingMessage == (incoming + "/FAILURE" 
-								))
-			{	
-				fprintf(stderr, "fssdfwdsdfsdsdf\n");	
-				string finalAck = incoming + "/OK";
-				sock -> write(finalAck.c_str(), 
-					finalAck.length()+1);
+			cout << "incoming: " << incoming << "\n";
+			printf("incomingMessage: %s", incomingMessage);
+			string flag = "";
+			bool isflag = true;
+			for(int i = incoming.length() - 1; i >= 0; i--){
+				if(incoming[i] == '/') isflag= false;
+				if(isflag) flag += incoming[i];
+				else break;
 			}
+                        if (flag ==  "SSECCUS" || flag == "ERULIAF")
+                        {
+                                string finalAck = incoming;
+				cout << "finalAck: " << finalAck << '\n';
+                                sock -> write(finalAck.c_str(),
+                                        finalAck.length()+1);
+                        }
+			else
+			{
+				string response = incoming + '/' + 
+						checkFiles(sock,
+						argv[3], incoming);
+				sock -> write(response.c_str(),
+						 response.length()+1);
+			}
+			//readlen = sock -> read(incomingMessage, sizeof(incomingMessage)-1);
+			//fprintf(stderr, "Incoming: %s", incomingMessage);
+			//cout << incoming << '\n';
 			
 		}
 	}

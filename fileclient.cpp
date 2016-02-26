@@ -111,7 +111,7 @@ void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, char *srcDir,
 		if( isFileName ) fileName += msg[i];
 		else sha1 += msg[i];
 	} 
-	cout << fileName << " " << sha1 << '\n';
+	cout <<"file + sha: " << fileName << " " << sha1 << '\n';
 	string clientSha = computeSha(fileName, srcDir);
 	bool result;
 	if (clientSha == sha1) result = true;
@@ -186,7 +186,8 @@ bool sendResult(bool result, string fileName, C150DgmSocket *sock)
 	do {
 		checkMessage(readlen, incomingMessage, sizeof(incomingMessage));
 		std::string finalResponse = incomingMessage;
-		if(finalResponse == (fileName + "/OK")) return true;
+		cout << "FINAL RESPONSE: " << finalResponse << "\n";
+		if(finalResponse == msg) return true;
                 readlen = sock -> read(incomingMessage,
 				sizeof(incomingMessage));
 	}while(!sock->timedout());
