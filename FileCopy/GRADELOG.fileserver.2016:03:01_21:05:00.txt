@@ -1,0 +1,35 @@
+THIS IS LOG FILE: GRADELOG.fileserver.2016:03:01_21:05:00.txt
+Grading log started on 03/01/2016 21:05:00.115424 Command line = [./fileserver 0 0 TARGET/]
+File: data1 starting to receive file
+File: data1 received, beginning end-to-end check
+File: data1/SUCCESS end-to-end check succeeded
+File: data10 starting to receive file
+File: data10 received, beginning end-to-end check
+File: data10/FAILURE end-to-end check failed
+File: data100 starting to receive file
+File: data100 received, beginning end-to-end check
+File: data100/SUCCESS end-to-end check succeeded
+File: data1000 starting to receive file
+File: data1000 received, beginning end-to-end check
+File: data1000/SUCCESS end-to-end check succeeded
+File: data10000 starting to receive file
+File: data10000 received, beginning end-to-end check
+File: data10000/FAILURE end-to-end check failed
+File: independence.txt starting to receive file
+File: independence.txt received, beginning end-to-end check
+File: independence.txt/SUCCESS end-to-end check succeeded
+File: love.txt starting to receive file
+File: love.txt received, beginning end-to-end check
+File: love.txt/SUCCESS end-to-end check succeeded
+File: moor.txt starting to receive file
+File: moor.txt received, beginning end-to-end check
+File: moor.txt/SUCCESS end-to-end check succeeded
+File: romeo.txt starting to receive file
+File: romeo.txt received, beginning end-to-end check
+File: romeo.txt/SUCCESS end-to-end check succeeded
+File: tyger.txt starting to receive file
+File: tyger.txt received, beginning end-to-end check
+File: tyger.txt/SUCCESS end-to-end check succeeded
+File: warandpeace.txt starting to receive file
+File: warandpeace.txt received, beginning end-to-end check
+File: warandpeace.txt/FAILURE end-to-end check failed

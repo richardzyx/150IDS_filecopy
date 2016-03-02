@@ -22,8 +22,8 @@ const int netNastinessArg = 2;
 const int fileNastinessArg = 3;
 const int srcDirArg = 4;
 
-void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, char *srcDir, C150DgmSocket *sock);
-string computeSha(string fileName, char * srcDir);
+void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, char *srcDir, C150DgmSocket *sock, int fileNastiness);
+string computeSha(string fileName, char * srcDir, int fileNastiness);
 bool sendResult(bool result, string fileName, C150DgmSocket *sock);
 void checkMessage(ssize_t readlen, char *msg, ssize_t bufferlen);
 
@@ -41,6 +41,7 @@ int main(int argc, char *argv[])
 	SRC = opendir(argv[srcDirArg]);
     struct dirent *sourceFile;
 	int netNastiness = atoi(argv[netNastinessArg]);
+    int fileNastiness = atoi(argv[fileNastinessArg]);
         if (SRC == NULL) {
             fprintf(stderr,"Error opening source directory %s\n",
                                                 argv[srcDirArg]);
@@ -88,7 +89,7 @@ int main(int argc, char *argv[])
                 //TODO: pass filenastiness
 				checkSha(readlen, incomingMessage,
 					sizeof(incomingMessage), 
-					argv[srcDirArg], sock);
+					argv[srcDirArg], sock, fileNastiness);
 			        readlen = sock -> read(incomingMessage,
                                                  sizeof(incomingMessage));
                 //TODO: read until we read the expected packet message, separate stages, add flags
@@ -109,7 +110,7 @@ int main(int argc, char *argv[])
 }
 
 void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, char *srcDir, 
-                                                        C150DgmSocket *sock){
+                                                        C150DgmSocket *sock, int fileNastiness){
 
 	checkMessage(readlen, msg, bufferlen);
 	string fileName = "";
@@ -130,7 +131,7 @@ void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, char *srcDir,
 	// cout <<"file + sha: " << fileName << " " << sha1 << '\n';
 
     //TODO: check to make sure the packet does not come from previous transactions
-	string clientSha = computeSha(fileName, srcDir);
+	string clientSha = computeSha(fileName, srcDir, fileNastiness);
 	bool result;
 	if (clientSha == sha1) result = true;
 	else result = false;
@@ -158,28 +159,60 @@ void checkMessage(ssize_t readlen, char *msg, ssize_t bufferlen){
 
 }
 
-string computeSha(string fileName, char * srcDir)
+string computeSha(string fileName, char * srcDir, int fileNastiness)
 {
-    //TODO: this current version do not use nastyfile due to our previous bug
-    // we will definitely fix in final submission        
+    NASTYFILE inputFile(fileNastiness);
+    void *fopenretval;
+    string errorString;
+    size_t sourceSize;
+    char *buffer;
+    size_t len;
+    unsigned char obuf[20];
+
     char sha1hex[40];
     std::string path = srcDir;
     //add '/' to end of path if it is not there
     if(path[path.length() - 1] != '/') path += '/';
-    ifstream *t;
-    stringstream *buffer;
-    unsigned char obuf[20];
-    t = new ifstream((path+fileName).c_str());
-    buffer = new stringstream;
-    *buffer << t->rdbuf();
-    SHA1((const unsigned char *)buffer->str().c_str(),
-         (buffer->str()).length(), obuf);
+
+    printf ("SHA1 (\"%s\") is computed\n ", (path+fileName).c_str());
+       
+    fopenretval = inputFile.fopen((path+fileName).c_str(), "rb");
+
+    if (fopenretval == NULL) {
+        cerr << "Error opening input file " << (path+fileName).c_str() << 
+        " errno=" << strerror(errno) << endl;
+        exit(12);
+    }
+    inputFile.fseek(0, SEEK_END);
+    sourceSize = inputFile.ftell();
+    buffer = (char *)malloc(sourceSize);
+    cout << sourceSize << " " << sizeof(*buffer) << endl;
+    if(buffer == NULL) exit(1);
+    inputFile.fseek(0, SEEK_SET);
+    len = inputFile.fread(buffer, 1, sourceSize);
+    cout << sourceSize << " " << sizeof(*buffer) << endl;
+    // printf("%s  --- buffer \n", buffer);
+
+    if (len != sourceSize) {
+        cerr << "Error reading file " << (path+fileName).c_str() << 
+          "  errno=" << strerror(errno) << endl;
+        exit(16);
+    }
+    if (inputFile.fclose() != 0 ) {
+        cerr << "Error closing input file " << (path+fileName).c_str() << 
+          " errno=" << strerror(errno) << endl;
+        exit(16);
+    }
+
+    SHA1((const unsigned char *)buffer, len, obuf);
     for (int i = 0; i < 20; i++)
     {
-            sprintf (sha1hex + (i*2), "%02x", (unsigned int) obuf[i]);
+        sprintf (sha1hex + (i*2), "%02x", (unsigned int) obuf[i]);
     }
-    delete t;
-    delete buffer;
+    printf ("\n");
+
+    free(buffer);
+
     std::string sha1 = sha1hex;
     return sha1;
 }

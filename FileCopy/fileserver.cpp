@@ -22,8 +22,8 @@ const int fileNastinessArg = 2;
 const int targetDirArg = 3;
 
 void checkDirectory(char *dirname);
-string checkFiles(C150DgmSocket *sock, char *targetDir, string fileName);
-string computeSha(string fileName, char *targetDir);
+string checkFiles(C150DgmSocket *sock, char *targetDir, string fileName, int fileNastiness);
+string computeSha(string fileName, char *targetDir, int fileNastiness);
 
 int main(int argc, char *argv[])
 {
@@ -41,6 +41,7 @@ int main(int argc, char *argv[])
 		exit(4);
 	}
 	int networkNastiness = atoi(argv[netNastinessArg]);
+    int fileNastiness = atoi(argv[fileNastinessArg]);
 	try {
 		C150DgmSocket *sock = new C150NastyDgmSocket(networkNastiness);
 		while(1){
@@ -79,7 +80,7 @@ int main(int argc, char *argv[])
                 //TODO: add process for accepting the entire file
                 *GRADING << "File: " << incoming << " starting to receive file" << endl;
                 //TODO: pass filenastiness
-				string response = incoming + '/' + checkFiles(sock, argv[targetDirArg], incoming);
+				string response = incoming + '/' + checkFiles(sock, argv[targetDirArg], incoming, fileNastiness);
 				sock -> write(response.c_str(), response.length()+1);
 			}
 			//TODO: the current version only works in nastiness 0 and 1
@@ -90,7 +91,7 @@ int main(int argc, char *argv[])
 	}
 }
 
-string checkFiles(C150DgmSocket* sock, char *targetDir, string fileName)
+string checkFiles(C150DgmSocket* sock, char *targetDir, string fileName, int fileNastiness)
 {
     *GRADING << "File: " << fileName << " received, beginning end-to-end check" << endl;
 	checkDirectory(targetDir);
@@ -102,7 +103,7 @@ string checkFiles(C150DgmSocket* sock, char *targetDir, string fileName)
    		exit(8);
  	}
 
-    string response = computeSha(fileName, targetDir);
+    string response = computeSha(fileName, targetDir, fileNastiness);
     closedir(TARGET);
 	return response;
 }
@@ -120,30 +121,61 @@ void checkDirectory(char *dirname) {
     }
 }
 
-string computeSha(string fileName, char *targetDir)
+string computeSha(string fileName, char *targetDir, int fileNastiness)
 {
-    //TODO: this current version do not use nastyfile due to our previous bug
-    // we will definitely fix in final submission  
-	char sha1hex[40];
-	std::string path = targetDir;
-	//add '/' to end of path if it is not there
-	if(path[path.length() - 1] != '/') path += '/';
-	ifstream *t;
-	stringstream *buffer;
-	unsigned char obuf[20];
-	// printf ("SHA1 (\"%s\") = ", (path+fileName).c_str());
-	t = new ifstream((path+fileName).c_str());
-	buffer = new stringstream;
-	*buffer << t->rdbuf();
-	SHA1((const unsigned char *)buffer->str().c_str(),
-	     (buffer->str()).length(), obuf);
-        for (int i = 0; i < 20; i++)
-        {
-        	sprintf (sha1hex + (i*2), "%02x", (unsigned int) obuf[i]);
-        }
-        printf ("\n");
-        delete t;
-        delete buffer;
-	std::string sha1 = sha1hex;
-	return sha1;
+    NASTYFILE inputFile(fileNastiness);
+    void *fopenretval;
+    string errorString;
+    size_t sourceSize;
+    char *buffer;
+    size_t len;
+    unsigned char obuf[20];
+
+    char sha1hex[40];
+    std::string path = targetDir;
+    //add '/' to end of path if it is not there
+    if(path[path.length() - 1] != '/') path += '/';
+
+    // const char *full_path = (path+fileName).c_str();
+    printf ("SHA1 (\"%s\") is computed\n ", (path+fileName).c_str());
+     
+       
+    fopenretval = inputFile.fopen((path+fileName).c_str(), "rb");
+
+
+    if (fopenretval == NULL) {
+        cerr << "Error opening input file " << (path+fileName).c_str() << 
+            " errno=" << strerror(errno) << endl;
+        exit(12);
+    }
+    inputFile.fseek(0, SEEK_END);
+    sourceSize = inputFile.ftell();
+    buffer = (char *)malloc(sourceSize);
+    if(buffer == NULL) exit(1);
+    inputFile.fseek(0, SEEK_SET);
+    len = inputFile.fread(buffer, 1, sourceSize);
+    cout << sourceSize << " " << sizeof(*buffer) << endl;
+
+    if (len != sourceSize) {
+      cerr << "Error reading file " << (path+fileName).c_str() << 
+          "  errno=" << strerror(errno) << endl;
+      exit(16);
+    }
+    if (inputFile.fclose() != 0 ) {
+      cerr << "Error closing input file " << (path+fileName).c_str() << 
+          " errno=" << strerror(errno) << endl;
+      exit(16);
+    }
+
+    SHA1((const unsigned char *)buffer, len, obuf);
+    for (int i = 0; i < 20; i++)
+    {
+        sprintf (sha1hex + (i*2), "%02x", (unsigned int) obuf[i]);
+    }
+    printf ("\n");
+
+    free(buffer);
+
+    std::string sha1 = sha1hex;
+    return sha1;
 }
