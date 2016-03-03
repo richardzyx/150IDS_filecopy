@@ -21,84 +21,52 @@ const int serverArg = 1;
 const int netNastinessArg = 2;
 const int fileNastinessArg = 3;
 const int srcDirArg = 4;
+const size_t MAX_DATA_BYTES = 480;
+struct packetStruct {
+    char flag;
+    char ackFlag;
+    uint32_t fileNum;
+    uint32_t fileOffset;
+    size_t numBytes;
+    char data[MAX_DATA_BYTES]; //this size makes the packet 508 bytes leaving room for NULL termination
+};
 
-void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, char *srcDir, C150DgmSocket *sock, int fileNastiness);
+void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, string srcName, 
+		char *srcDir, C150DgmSocket *sock, int fileNastiness,
+		char *argv[], uint32_t fileNum);
 string computeSha(string fileName, char * srcDir, int fileNastiness);
-bool sendResult(bool result, string fileName, C150DgmSocket *sock);
+bool sendResult(bool result, string fileName, C150DgmSocket *sock, 
+		int fileNastiness, char *argv[], uint32_t fileNum);
 void checkMessage(ssize_t readlen, char *msg, ssize_t bufferlen);
-
+void fileCopy(C150DgmSocket *sock, char *argv[]);
+void startCopy(string srcName, C150DgmSocket *sock, int fileNastiness,
+		 char *argv[], uint32_t fileNum);
+bool getResponse(C150DgmSocket *sock, string srcName, int fileNastiness, 
+		packetStruct packet, char *argv[]);
+void endCopy(string srcName, C150DgmSocket *sock, int fileNastiness,
+                char *argv[], uint32_t fileNum);
+void makePacket(packetStruct *packet, char flag, char ackFlag, uint32_t fileNum,
+                uint32_t fileOffset, size_t numBytes, const char* data);
+void sendFile(string srcName, C150DgmSocket *sock, int fileNastiness,
+                char *argv[], uint32_t fileNum);
 int main(int argc, char *argv[])
 {
+	cout << sizeof(packetStruct) << endl;
     GRADEME(argc, argv);
 	if (argc != 5) {
 		fprintf(stderr, "Correct syntax is: %s <servername> <networknastiness> <filenastiness> <srcdir>\n", argv[0]);
 		exit(1);
 	}
-	
-	ssize_t readlen;
-	char incomingMessage[512];
-	DIR *SRC;
-	SRC = opendir(argv[srcDirArg]);
-    struct dirent *sourceFile;
+
 	int netNastiness = atoi(argv[netNastinessArg]);
-    int fileNastiness = atoi(argv[fileNastinessArg]);
-        if (SRC == NULL) {
-            fprintf(stderr,"Error opening source directory %s\n",
-                                                argv[srcDirArg]);
-            exit(8);
-        }
+
 	try {
         // Setting up Socket with nastiness in network
 		C150DgmSocket *sock = new C150NastyDgmSocket(netNastiness);
 		sock -> setServerName(argv[serverArg]);
 		sock -> turnOnTimeouts(3000);
-		
-        // Check to make sure SRC is not NULL
-        while ((sourceFile = readdir(SRC)) != NULL) {
-            // Get the string version of current file name, and send as message
-			string srcName = sourceFile->d_name;
-			const char *msg = srcName.c_str();
-            if ((strcmp(sourceFile->d_name, ".") == 0) ||
-        	            (strcmp(sourceFile->d_name, "..")  == 0 ))
-                continue;
-			
-            // +1 for null character
-            sock -> write(msg, strlen(msg) + 1);
-            int i = 0;
-            *GRADING << "File: " << srcName << ", beginning transmission, attempt " 
-                    << i+1 <<endl;
-			readlen = sock -> read(incomingMessage, sizeof(incomingMessage));
-			
-            while(sock->timedout() && i < 5){
-				sock->write(msg, strlen(msg) + 1);
-				i++;
-                *GRADING << "File: " << srcName << ", beginning transmission, attempt " 
-                    << i+1 <<endl;
-                readlen = sock -> read(incomingMessage, sizeof(incomingMessage));
-			}
-			if( i >= 5){
-				throw C150NetworkException("Server not responding.");
-			}
-            //do if not timedout, and make sure got the right type of message
-			do{
-                //TODO: add check to first stage messages
-                //We assume 0 nastiness or none duplicate packet in the network
-                *GRADING << "File: " << srcName << " transmission complete, waiting for end-to-end check, attempt " 
-                    << i+1 <<endl;
-                //TODO: add unique ID for this transaction for all following interactions
-                //TODO: pass filenastiness
-				checkSha(readlen, incomingMessage,
-					sizeof(incomingMessage), 
-					argv[srcDirArg], sock, fileNastiness);
-			        readlen = sock -> read(incomingMessage,
-                                                 sizeof(incomingMessage));
-                //TODO: read until we read the expected packet message, separate stages, add flags
-                //TODO: should proceed only when read SHA1 message
-			}while(!sock->timedout());
-
- 
-			
-		}	
+	        fileCopy(sock, argv);
+        // Check to make sure SRC is not NULL			
 		// Get sha1 of file and send to server
 		// wait for response saying files match or not
 	
@@ -108,40 +76,208 @@ int main(int argc, char *argv[])
 	}
 	return 0;
 }
+void fileCopy(C150DgmSocket *sock, char *argv[])
+{
+    DIR *SRC;
+    SRC = opendir(argv[srcDirArg]);
+    struct dirent *sourceFile;
+    int fileNastiness = atoi(argv[fileNastinessArg]);
+    if (SRC == NULL) {
+        fprintf(stderr,"Error opening source directory %s\n", argv[srcDirArg]);
+        exit(8);
+    }
+    uint32_t fileNum = 0;
+    while ((sourceFile = readdir(SRC)) != NULL) {
+        // Get the string version of current file name, and send as message
+        string srcName = sourceFile->d_name;
+        if ((strcmp(sourceFile->d_name, ".") == 0) ||
+                    (strcmp(sourceFile->d_name, "..")  == 0 ))
+            continue;
+            
+        // +1 for null character
+        startCopy(srcName, sock, fileNastiness, argv, fileNum);
+	fileNum++;
+ 
+    }
+}
 
-void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, char *srcDir, 
-                                                        C150DgmSocket *sock, int fileNastiness){
+void startCopy(string srcName, C150DgmSocket *sock, int fileNastiness,
+		 char *argv[], uint32_t fileNum)
+{
+    const char *msg = srcName.c_str();
+    packetStruct packet;
+    makePacket(&packet, 'S', 0, fileNum, 0, sizeof(msg),  msg);
+    char msgBuffer[sizeof(packet)];
+    memcpy(msgBuffer, &packet, sizeof(packet));
+    sock -> write(msgBuffer, sizeof(msgBuffer) + 4);
+    *GRADING << "File: " << srcName << ", beginning transmission, attempt " 
+            << 1 <<endl;
+    while(!getResponse(sock, srcName, fileNastiness, packet, argv)){
+	cout << "received unexpected packet(s)" << endl;
+    }
+    sendFile(srcName, sock, fileNastiness, argv, fileNum);
+    endCopy(srcName, sock, fileNastiness, argv, fileNum);
+}
+void sendFile(string srcName, C150DgmSocket *sock, int fileNastiness,
+		char *argv[], uint32_t fileNum)
+{
+    NASTYFILE inputFile(fileNastiness);
+    void *fopenretval;
+    size_t sourceSize;
+    char *buffer;
+    size_t len;
+	
+    std::string path = argv[srcDirArg];
+    if(path[path.length() - 1] != '/') path += '/';
+    fopenretval = inputFile.fopen((path+srcName).c_str(), "rb");
+    if (fopenretval == NULL) {
+	cerr << "Error opening input file " << (path+srcName).c_str() <<
+	    " errno=" << strerror(errno) << endl;
+	exit(12);
+    }
+    inputFile.fseek(0, SEEK_END);
+    sourceSize = inputFile.ftell();
+    buffer = (char*)malloc(sourceSize);
+    if(buffer == NULL) exit(1);
+    inputFile.fseek(0, SEEK_SET);
+    len = inputFile.fread(buffer, 1, sourceSize);
+    if(len != sourceSize) {
+	cerr << "Error reading file " << (path+srcName).c_str() <<
+            "  errno=" << strerror(errno) << endl;
+        exit(16);
+    }
+    if(inputFile.fclose() != 0) {
+        cerr << "Error closing input file " << (path+srcName).c_str() <<
+            " errno=" << strerror(errno) << endl;
+        exit(16);
+    }
+    uint32_t i = 0;
+    int bytestosend = MAX_DATA_BYTES;
+    while(i * MAX_DATA_BYTES <= len){
+	if((i+1)* MAX_DATA_BYTES > len){
+		bytestosend = len - (i*MAX_DATA_BYTES);
+	}
+	char data[bytestosend];
+	memcpy(data, buffer + (i*MAX_DATA_BYTES), bytestosend);
+	packetStruct dataPacket;
+	makePacket(&dataPacket, 'D', 0, fileNum, (i*MAX_DATA_BYTES), 
+			sizeof(data),  data);
+	char msgBuffer[sizeof(dataPacket)];
+	memcpy(msgBuffer, &dataPacket, sizeof(dataPacket));
+	sock -> write(msgBuffer, sizeof(msgBuffer) + 4);
+	while(!getResponse(sock, srcName, fileNastiness, dataPacket, argv)); 
+   	i++;
+    }
+}
+void endCopy(string srcName, C150DgmSocket *sock, int fileNastiness, 
+		char *argv[], uint32_t fileNum)
+{
+    const char *msg = srcName.c_str();
+    packetStruct packet;
+    makePacket(&packet, 'E', 0, fileNum, 0, sizeof(msg), msg);
+    char msgBuffer[sizeof(packet)];
+    memcpy(msgBuffer, &packet, sizeof(packet));
+    sock -> write(msgBuffer, sizeof(msgBuffer) + 4);
+    getResponse(sock, srcName, fileNastiness, packet, argv);
+}
+
+void makePacket(packetStruct *packet, char flag, char ackFlag, uint32_t fileNum,
+		uint32_t fileOffset, size_t numBytes,  const char* data)
+{
+    packet -> flag = flag;
+    packet -> ackFlag = ackFlag;
+    packet -> fileNum = fileNum;
+    packet -> fileOffset = fileOffset;
+    packet -> numBytes = numBytes;
+    strcpy(packet -> data, data);
+}
+
+bool getResponse(C150DgmSocket *sock, string srcName, int fileNastiness,
+		 packetStruct packet, char *argv[])
+{
+    ssize_t readlen;
+    char incomingMessage[512];
+    readlen = sock -> read(incomingMessage, sizeof(incomingMessage));
+    int i = 0;
+    char msgBuffer[sizeof(packet)];
+    memcpy(msgBuffer, &packet, sizeof(packet));
+    while(sock->timedout() && i < 5){
+        sock->write( msgBuffer, sizeof(msgBuffer) + 4);
+        i++;
+        *GRADING << "File: " << srcName << ", beginning transmission, attempt " 
+            << i+1 <<endl;
+        readlen = sock -> read(incomingMessage, sizeof(incomingMessage));
+    }
+    if( i >= 5){
+        throw C150NetworkException("Server not responding.");
+    }
+    //do if not timedout, and make sure got the right type of message
+    do{
+	packetStruct incomingPacket;
+	memcpy(&incomingPacket, incomingMessage, sizeof(incomingMessage));
+	if(incomingPacket.flag == 'A'){
+		if(incomingPacket.ackFlag == packet.flag && 
+		    incomingPacket.fileNum == packet.fileNum &&
+		    incomingPacket.fileOffset == packet.fileOffset){
+			return true;
+		}
+	}
+	else if(incomingPacket.flag == 'C'){
+	
+            //TODO: add check to first stage messages
+            //We assume 0 nastiness or none duplicate packet in the network
+            *GRADING << "File: " << srcName <<
+	 " transmission complete, waiting for end-to-end check, attempt " 
+            << i+1 <<endl;
+            //TODO: add unique ID for this transaction for all following interactions
+            //TODO: pass filenastiness
+            checkSha(readlen, incomingMessage,
+                sizeof(incomingMessage), srcName, 
+                argv[srcDirArg], sock, fileNastiness, argv, 
+		incomingPacket.fileNum);
+            readlen = sock -> read(incomingMessage,
+				sizeof(incomingMessage));
+	}
+        //TODO: read until we read the expected packet message, separate stages, add flags
+        //TODO: should proceed only when read SHA1 message
+    }while(!sock->timedout());
+    return false;
+}
+
+void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, string srcName, 
+		char *srcDir, C150DgmSocket *sock, int fileNastiness,
+		char *argv[], uint32_t fileNum)
+{
 
 	checkMessage(readlen, msg, bufferlen);
-	string fileName = "";
-	string sha1 = "";
-
-    //Temporary message protocol: "a.txt/sha1" as / cannot be in file names
-    //Read until it is not file name
-	bool isFileName = true;
-    //Make sure to skip the final null bit
-	for(int i=0; i < readlen - 1; i++){
-		if(msg[i] == '/') {
-			isFileName = false;
-			continue;
-		}
-		if( isFileName ) fileName += msg[i];
-		else sha1 += msg[i];
-	} 
+	const char *sha1;
+	packetStruct checksumPacket;
+	memcpy(&checksumPacket, msg, bufferlen);
+	sha1 = checksumPacket.data;
+ 
 	// cout <<"file + sha: " << fileName << " " << sha1 << '\n';
 
     //TODO: check to make sure the packet does not come from previous transactions
-	string clientSha = computeSha(fileName, srcDir, fileNastiness);
+	string clientSha = computeSha(srcName, srcDir, fileNastiness);
 	bool result;
-	if (clientSha == sha1) result = true;
-	else result = false;
-	int j = 0;
+	std::string serversha = sha1;
+	if (clientSha == serversha){
+	    result = true;
+	    cout << "TRANSFER SUCCEEDED" << endl;
+	}
+	else{
+	    result = false;
+	    cout << "TRANSFER FAILED" << endl;
+	}
+	sendResult(result, srcName, sock, fileNastiness, argv, fileNum);
+	//int j = 0;
     
     //Execute end-to-end send result process, retry five times if no ack from server
-	while(!sendResult(result, fileName, sock) && j < 5)
+/*	while(!sendResult(result, srcName, sock) && j < 5)
 	{
 		j++; 
 	}
+*/
 }
 
 void checkMessage(ssize_t readlen, char *msg, ssize_t bufferlen){
@@ -217,23 +353,32 @@ string computeSha(string fileName, char * srcDir, int fileNastiness)
     return sha1;
 }
 
-bool sendResult(bool result, string fileName, C150DgmSocket *sock)
-{
-	ssize_t readlen;
-	char incomingMessage[512];	
+bool sendResult(bool result, string fileName, C150DgmSocket *sock, 
+		int fileNastiness, char *argv[], uint32_t fileNum)
+{	
+    packetStruct resultPacket;
+    string msg;
+    if(result) msg = fileName + "/PASS"; //passed the checksum
+    else msg = fileName + "/FAIL"; //failed the checksum
+    makePacket(&resultPacket, 'C', 0, fileNum, 0, sizeof(msg.c_str()), 
+		 msg.c_str());
+    char msgBuffer[sizeof(resultPacket)];
+    memcpy(msgBuffer, &resultPacket, sizeof(resultPacket));	
 	
-    string msg = fileName + '/';
-	if(result) msg += "SUCCESS";
-	else msg += "FAILURE";
-	
-    sock->write(msg.c_str(), msg.length() + 1);
+    sock->write(msgBuffer, sizeof(msgBuffer) + 4);
     int i = 0;
     if(result) *GRADING << "File: " << fileName << " end-to-end check succeeded, attempt " 
                     << i+1 <<endl;
     else *GRADING << "File: " << fileName << " end-to-end check failed, attempt " 
                     << i+1 <<endl;
-
-    readlen = sock -> read(incomingMessage, sizeof(incomingMessage));
+    if(getResponse(sock, fileName, fileNastiness, resultPacket, argv) && result)
+    {
+	cout << "end-to-end succeeded" << endl;
+	return true;
+    }
+    else cout << "end-to-end fails" << endl;
+    return false; 
+ /*   readlen = sock -> read(incomingMessage, sizeof(incomingMessage));
 
     while(sock->timedout() && i < 5){
       	sock->write(msg.c_str(), msg.length() + 1);
@@ -264,5 +409,6 @@ bool sendResult(bool result, string fileName, C150DgmSocket *sock)
         readlen = sock -> read(incomingMessage, sizeof(incomingMessage));
 	}while(!sock->timedout());
 
-	return false;		
+	return false;	
+*/	
 } 
