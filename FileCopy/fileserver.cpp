@@ -41,10 +41,10 @@ void checkDirectory(char *dirname);
 string checkFiles(C150DgmSocket *sock, char *targetDir, string fileName, int fileNastiness);
 string computeSha(string fileName, char *targetDir, int fileNastiness);
 void listen(char* argv[], C150DgmSocket *sock, int fileNastiness, 
-		currentFile *file);
+		currentFile *file, NASTYFILE *outputfile);
 void makePacket(packetStruct *packet, char flag, char ackFlag, uint32_t fileNum, 		uint32_t fileOffset, const char* data);
 void writeData(packetStruct packet, char *argv[], int fileNastiness, 
-		currentFile *file);
+		currentFile *file, NASTYFILE *outputFile);
 
 int main(int argc, char *argv[])
 {
@@ -65,9 +65,12 @@ int main(int argc, char *argv[])
     try {
 	C150DgmSocket *sock = new C150NastyDgmSocket(networkNastiness);
 	currentFile file;
+	//sock -> turnOnTimeouts(300);
+
 	file.readyForNew = true;
+	NASTYFILE outputFile(fileNastiness);
 	while(1){
-            listen(argv, sock, fileNastiness, &file);
+            listen(argv, sock, fileNastiness, &file, &outputFile);
             //TODO: inconsistent hanlding of incoming messages
 			//TODO: the current version only works in nastiness 0 and 1
 	}
@@ -78,7 +81,7 @@ int main(int argc, char *argv[])
 }
 
 void listen(char * argv[], C150DgmSocket *sock,  int fileNastiness, 
-		currentFile *file)
+		currentFile *file, NASTYFILE *outputFile)
 {
     ssize_t readlen;
     char incomingMessage[512];
@@ -87,6 +90,7 @@ void listen(char * argv[], C150DgmSocket *sock,  int fileNastiness,
         return;
     }
     incomingMessage[readlen] = '\0';
+//    cout << incomingMessage << " <- sock message " << endl;
     //string incoming(incomingMessage);
     //TODO: add possible checkMessage function, and check transaction ID
     //cleanString(incoming);
@@ -100,20 +104,54 @@ void listen(char * argv[], C150DgmSocket *sock,  int fileNastiness,
     //Since we read backwards, the checking string is backward. Will improve in later version
     if(incomingPacket.flag == 'S'){ //if this is a start packet
         cout << "START PACKET RECEIVED FOR FILE: " << incomingPacket.data << endl;
-        if(!(file -> readyForNew)) return;
+        if(!(file -> readyForNew)){
+	    if(incomingPacket.fileNum == file -> fileNum){
+	        packetStruct responsePacket;
+        	makePacket(&responsePacket, 'A', 'S', incomingPacket.fileNum, 0, 0); //A for ack, S for start
+        	char msgBuffer[sizeof(responsePacket)];
+        	memcpy(msgBuffer, &responsePacket, sizeof(responsePacket));
+		sock -> write(msgBuffer, sizeof(msgBuffer) + 8);
+	    }
+	    return;
+	}
 	file -> fileNum = incomingPacket.fileNum;
 	strcpy(file -> fileName, incomingPacket.data);
 	file -> readyForNew = false;
 	printf("filename: %s", file -> fileName);
+	std::string targetDir = argv[targetDirArg];
+	if(targetDir[targetDir.length() - 1] != '/') targetDir += '/';
+    	std::string fileName = file -> fileName;
+    	string path = targetDir + fileName;
+	void *fopenretval;
+	fopenretval = outputFile->fopen(path.c_str(), "wb+"); //open for read and write binary
+	if (fopenretval == NULL) {
+            cerr << "Error opening input file " << path << "errno=" <<
+                strerror(errno) << endl;
+            exit(12);
+    	}
+	 
 	packetStruct responsePacket;
         makePacket(&responsePacket, 'A', 'S', incomingPacket.fileNum, 0, 0); //A for ack, S for start
 	char msgBuffer[sizeof(responsePacket)];
 	memcpy(msgBuffer, &responsePacket, sizeof(responsePacket));
+	//int temp_AS = 0;
+	//do{
+	//    temp_AS++;
 	sock -> write(msgBuffer, sizeof(msgBuffer) + 8);
+	//}while(!sock->timedout()&& temp_AS < 5);
+	
     }
     else if(incomingPacket.flag == 'E'){
         cout << "END PACKET RECIEVED FOR FILE: " << incomingPacket.data 
         << "---computing checksum" << endl;
+	if(!file -> readyForNew){
+	    if (outputFile->fclose() != 0){
+                cerr << "Error closing output file " <<
+                    " errno=" << strerror(errno) << endl;
+                exit(16);
+            }
+	    file -> readyForNew = true;
+	}
         string sha = checkFiles(sock, argv[targetDirArg], incomingPacket.data, fileNastiness);
         packetStruct responsePacket;
         makePacket(&responsePacket, 'C', 0, incomingPacket.fileNum, 0,
@@ -134,7 +172,7 @@ void listen(char * argv[], C150DgmSocket *sock,  int fileNastiness,
     }
     else if(incomingPacket.flag == 'D'){
 	cout << "DATA PACKET RECEIVED" << endl;
-	writeData(incomingPacket, argv, fileNastiness, file);
+	writeData(incomingPacket, argv, fileNastiness, file, outputFile);
 	packetStruct responsePacket;
 	makePacket(&responsePacket, 'A', 'D', incomingPacket.fileNum,
 		incomingPacket.fileOffset, 0);
@@ -158,36 +196,40 @@ void listen(char * argv[], C150DgmSocket *sock,  int fileNastiness,
         sock -> write(response.c_str(), response.length()+1);
     }*/
 }
+
 void writeData(packetStruct packet, char *argv[], int fileNastiness, 
-		currentFile *file)
+		currentFile *file, NASTYFILE *outputFile)
 {
     size_t len;
-    NASTYFILE outputFile(fileNastiness);
-    void *fopenretval;
-    std::string targetDir = argv[targetDirArg];
-    printf("filename when writing: %s", file ->fileName);
+//    NASTYFILE outputFile(fileNastiness);
+//    void *fopenretval;
+//    std::string targetDir = argv[targetDirArg];
+//    printf("filename when writing: %s", file ->fileName);
     //add '/' to end of path if it is not there
-    if(targetDir[targetDir.length() - 1] != '/') targetDir += '/';
+/*    if(targetDir[targetDir.length() - 1] != '/') targetDir += '/';
     std::string fileName = file -> fileName;
     string path = targetDir + fileName;
-    fopenretval = outputFile.fopen(path.c_str(), "wb"); //open for read and write binary
+    fopenretval = outputFile.fopen(path.c_str(), "wb+"); //open for read and write binary
     if (fopenretval == NULL) {
 	cerr << "Error opening input file " << path << "errno=" <<
 		strerror(errno) << endl;
 	exit(12);
     }
-    outputFile.fseek((packet.fileOffset * MAX_DATA_BYTES), SEEK_SET);
-    printf("Data: %s", packet.data);
-    len = outputFile.fwrite(packet.data, 1, packet.numBytes);
+*/
+    outputFile->fseek((packet.fileOffset * MAX_DATA_BYTES), SEEK_SET);
+    //cout << "offset: " << packet.fileOffset << endl;
+    //printf("Data: %s\n", packet.data);
+    len = outputFile->fwrite(packet.data, 1, packet.numBytes);
     if(len != packet.numBytes){
 	cerr << "error when writing" << endl;
     }
+/*
     if (outputFile.fclose() != 0){
         cerr << "Error closing output file " << path <<
             " errno=" << strerror(errno) << endl;
         exit(16);
     }
-    
+  */  
     
 }
 void makePacket(packetStruct *packet, char flag, char ackFlag, uint32_t fileNum, 

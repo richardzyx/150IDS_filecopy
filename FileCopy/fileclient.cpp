@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
         // Setting up Socket with nastiness in network
 		C150DgmSocket *sock = new C150NastyDgmSocket(netNastiness);
 		sock -> setServerName(argv[serverArg]);
-		sock -> turnOnTimeouts(3000);
+		sock -> turnOnTimeouts(300);
 	        fileCopy(sock, argv);
         // Check to make sure SRC is not NULL			
 		// Get sha1 of file and send to server
@@ -96,6 +96,7 @@ void fileCopy(C150DgmSocket *sock, char *argv[])
             
         // +1 for null character
         startCopy(srcName, sock, fileNastiness, argv, fileNum);
+	cout << "after startCopy" << endl;
 	fileNum++;
  
     }
@@ -109,12 +110,13 @@ void startCopy(string srcName, C150DgmSocket *sock, int fileNastiness,
     makePacket(&packet, 'S', 0, fileNum, 0, sizeof(msg),  msg);
     char msgBuffer[sizeof(packet)];
     memcpy(msgBuffer, &packet, sizeof(packet));
-    sock -> write(msgBuffer, sizeof(msgBuffer) + 4);
+    sock -> write(msgBuffer, sizeof(msgBuffer) + 8);
     *GRADING << "File: " << srcName << ", beginning transmission, attempt " 
             << 1 <<endl;
     while(!getResponse(sock, srcName, fileNastiness, packet, argv)){
 	cout << "received unexpected packet(s)" << endl;
     }
+    cout << "startCopy before sendFile" << endl;
     sendFile(srcName, sock, fileNastiness, argv, fileNum);
     endCopy(srcName, sock, fileNastiness, argv, fileNum);
 }
@@ -160,11 +162,11 @@ void sendFile(string srcName, C150DgmSocket *sock, int fileNastiness,
 	char data[bytestosend];
 	memcpy(data, buffer + (i*MAX_DATA_BYTES), bytestosend);
 	packetStruct dataPacket;
-	makePacket(&dataPacket, 'D', 0, fileNum, (i*MAX_DATA_BYTES), 
+	makePacket(&dataPacket, 'D', 0, fileNum, i, 
 			sizeof(data),  data);
 	char msgBuffer[sizeof(dataPacket)];
 	memcpy(msgBuffer, &dataPacket, sizeof(dataPacket));
-	sock -> write(msgBuffer, sizeof(msgBuffer) + 4);
+	sock -> write(msgBuffer, sizeof(msgBuffer) + 8);
 	while(!getResponse(sock, srcName, fileNastiness, dataPacket, argv)); 
    	i++;
     }
@@ -177,7 +179,7 @@ void endCopy(string srcName, C150DgmSocket *sock, int fileNastiness,
     makePacket(&packet, 'E', 0, fileNum, 0, sizeof(msg), msg);
     char msgBuffer[sizeof(packet)];
     memcpy(msgBuffer, &packet, sizeof(packet));
-    sock -> write(msgBuffer, sizeof(msgBuffer) + 4);
+    sock -> write(msgBuffer, sizeof(msgBuffer) + 8);
     getResponse(sock, srcName, fileNastiness, packet, argv);
 }
 
@@ -202,7 +204,7 @@ bool getResponse(C150DgmSocket *sock, string srcName, int fileNastiness,
     char msgBuffer[sizeof(packet)];
     memcpy(msgBuffer, &packet, sizeof(packet));
     while(sock->timedout() && i < 5){
-        sock->write( msgBuffer, sizeof(msgBuffer) + 4);
+        sock->write( msgBuffer, sizeof(msgBuffer) + 8);
         i++;
         *GRADING << "File: " << srcName << ", beginning transmission, attempt " 
             << i+1 <<endl;
@@ -213,8 +215,10 @@ bool getResponse(C150DgmSocket *sock, string srcName, int fileNastiness,
     }
     //do if not timedout, and make sure got the right type of message
     do{
-	packetStruct incomingPacket;
+	//cout << "In the do while getResponse loop" << endl;
+        packetStruct incomingPacket;
 	memcpy(&incomingPacket, incomingMessage, sizeof(incomingMessage));
+	//cout << incomingMessage << " <- incomingMessage " << endl;
 	if(incomingPacket.flag == 'A'){
 		if(incomingPacket.ackFlag == packet.flag && 
 		    incomingPacket.fileNum == packet.fileNum &&
@@ -223,7 +227,7 @@ bool getResponse(C150DgmSocket *sock, string srcName, int fileNastiness,
 		}
 	}
 	else if(incomingPacket.flag == 'C'){
-	
+	    cout << "in C flag getResponse function" << endl;	
             //TODO: add check to first stage messages
             //We assume 0 nastiness or none duplicate packet in the network
             *GRADING << "File: " << srcName <<
@@ -235,12 +239,11 @@ bool getResponse(C150DgmSocket *sock, string srcName, int fileNastiness,
                 sizeof(incomingMessage), srcName, 
                 argv[srcDirArg], sock, fileNastiness, argv, 
 		incomingPacket.fileNum);
-            readlen = sock -> read(incomingMessage,
-				sizeof(incomingMessage));
 	}
+	readlen = sock -> read(incomingMessage, sizeof(incomingMessage));
         //TODO: read until we read the expected packet message, separate stages, add flags
         //TODO: should proceed only when read SHA1 message
-    }while(!sock->timedout());
+    } while(!sock->timedout());
     return false;
 }
 
@@ -365,7 +368,7 @@ bool sendResult(bool result, string fileName, C150DgmSocket *sock,
     char msgBuffer[sizeof(resultPacket)];
     memcpy(msgBuffer, &resultPacket, sizeof(resultPacket));	
 	
-    sock->write(msgBuffer, sizeof(msgBuffer) + 4);
+    sock->write(msgBuffer, sizeof(msgBuffer) + 8);
     int i = 0;
     if(result) *GRADING << "File: " << fileName << " end-to-end check succeeded, attempt " 
                     << i+1 <<endl;
