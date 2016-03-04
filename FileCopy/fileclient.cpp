@@ -43,22 +43,22 @@ struct packetStruct {
 
 void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, string srcName, 
 		char *srcDir, C150DgmSocket *sock, int fileNastiness,
-		char *argv[], uint32_t fileNum);
+		char *argv[], uint32_t fileNum, int attemptNum);
 string computeSha(string fileName, char * srcDir, int fileNastiness);
 bool sendResult(bool result, string fileName, C150DgmSocket *sock, 
-		int fileNastiness, char *argv[], uint32_t fileNum);
+		int fileNastiness, char *argv[], uint32_t fileNum, int attemptNum);
 void checkMessage(ssize_t readlen, char *msg, ssize_t bufferlen);
 void fileCopy(C150DgmSocket *sock, char *argv[]);
 void startCopy(string srcName, C150DgmSocket *sock, int fileNastiness,
-		 char *argv[], uint32_t fileNum);
+		 char *argv[], uint32_t fileNum, int attemptNum);
 bool getResponse(C150DgmSocket *sock, string srcName, int fileNastiness, 
-		packetStruct packet, char *argv[]);
+		packetStruct packet, char *argv[], int attemptNum);
 void endCopy(string srcName, C150DgmSocket *sock, int fileNastiness,
-                char *argv[], uint32_t fileNum);
+                char *argv[], uint32_t fileNum, int attemptNum);
 void makePacket(packetStruct *packet, char flag, char ackFlag, uint32_t fileNum,
                 uint32_t fileOffset, size_t numBytes, const char* data);
 void sendFile(string srcName, C150DgmSocket *sock, int fileNastiness,
-                char *argv[], uint32_t fileNum);
+                char *argv[], uint32_t fileNum, int attemptNum);
 
 int main(int argc, char *argv[])
 {
@@ -104,7 +104,7 @@ void fileCopy(C150DgmSocket *sock, char *argv[])
             continue;
             
         // Copy this file
-        startCopy(srcName, sock, fileNastiness, argv, fileNum);
+        startCopy(srcName, sock, fileNastiness, argv, fileNum, 1);
 	   fileNum++;
     }
 }
@@ -112,7 +112,7 @@ void fileCopy(C150DgmSocket *sock, char *argv[])
 //send the initial start packet for this file to the server
 //calls sendFile and endCopy when sendFile has finished
 void startCopy(string srcName, C150DgmSocket *sock, int fileNastiness,
-		 char *argv[], uint32_t fileNum)
+		 char *argv[], uint32_t fileNum, int attemptNum)
 {
     const char *msg = srcName.c_str();
     packetStruct packet;
@@ -124,15 +124,15 @@ void startCopy(string srcName, C150DgmSocket *sock, int fileNastiness,
     //ensures NULL termination
     sock -> write(msgBuffer, sizeof(msgBuffer) + 8); 
     *GRADING << "File: " << srcName << ", beginning transmission, attempt " 
-            << 1 <<endl;
+            << attemptNum <<endl;
     //read packets until we get an ack for this start packet
-    while(!getResponse(sock, srcName, fileNastiness, packet, argv));
-    sendFile(srcName, sock, fileNastiness, argv, fileNum);
-    endCopy(srcName, sock, fileNastiness, argv, fileNum);
+    while(!getResponse(sock, srcName, fileNastiness, packet, argv, attemptNum));
+    sendFile(srcName, sock, fileNastiness, argv, fileNum, attemptNum);
+    endCopy(srcName, sock, fileNastiness, argv, fileNum, attemptNum);
 }
 //Sends the file over to the server
 void sendFile(string srcName, C150DgmSocket *sock, int fileNastiness,
-		char *argv[], uint32_t fileNum)
+		char *argv[], uint32_t fileNum, int attemptNum)
 {
     NASTYFILE inputFile(fileNastiness);
     void *fopenretval;
@@ -187,21 +187,24 @@ void sendFile(string srcName, C150DgmSocket *sock, int fileNastiness,
 	    memcpy(msgBuffer, &dataPacket, sizeof(dataPacket));
 	    sock -> write(msgBuffer, sizeof(msgBuffer) + 8);
         //wait to get response for this packet
-	    while(!getResponse(sock, srcName, fileNastiness, dataPacket, argv)); 
+	    while(!getResponse(sock, srcName, fileNastiness, dataPacket, argv, attemptNum)); 
    	    i++;
     }
 }
 //send end packet for this file 
 void endCopy(string srcName, C150DgmSocket *sock, int fileNastiness, 
-		char *argv[], uint32_t fileNum)
+		char *argv[], uint32_t fileNum, int attemptNum)
 {
+    *GRADING << "File: " << srcName <<
+     " transmission complete, waiting for end-to-end check, attempt " 
+             << attemptNum <<endl;
     const char *msg = srcName.c_str();
     packetStruct packet;
     makePacket(&packet, 'E', 0, fileNum, 0, sizeof(msg), msg);
     char msgBuffer[sizeof(packet)];
     memcpy(msgBuffer, &packet, sizeof(packet));
     sock -> write(msgBuffer, sizeof(msgBuffer) + 8);
-    getResponse(sock, srcName, fileNastiness, packet, argv);
+    getResponse(sock, srcName, fileNastiness, packet, argv, attemptNum);
 }
 
 //create a packet with the given fields
@@ -218,7 +221,7 @@ void makePacket(packetStruct *packet, char flag, char ackFlag, uint32_t fileNum,
 
 //get response from server that acknowledges the packet that was just sent
 bool getResponse(C150DgmSocket *sock, string srcName, int fileNastiness,
-		 packetStruct packet, char *argv[])
+		 packetStruct packet, char *argv[], int attemptNum)
 {
     ssize_t readlen;
     char incomingMessage[512];
@@ -229,8 +232,6 @@ bool getResponse(C150DgmSocket *sock, string srcName, int fileNastiness,
     while(sock->timedout() && i < 5){
         sock->write( msgBuffer, sizeof(msgBuffer) + 8);
         i++;
-        *GRADING << "File: " << srcName << ", beginning transmission, attempt " 
-            << i+1 <<endl;
         readlen = sock -> read(incomingMessage, sizeof(incomingMessage));
     }
     if( i >= 5){
@@ -248,14 +249,12 @@ bool getResponse(C150DgmSocket *sock, string srcName, int fileNastiness,
 		  }
 	   }
 	   else if(incomingPacket.flag == 'C'){
-            *GRADING << "File: " << srcName <<
-	 " transmission complete, waiting for end-to-end check, attempt " 
-            << i+1 <<endl;
+
             //check received sha against sha of file we copied
             checkSha(readlen, incomingMessage,
                 sizeof(incomingMessage), srcName, 
                 argv[srcDirArg], sock, fileNastiness, argv, 
-		        incomingPacket.fileNum);
+		        incomingPacket.fileNum, attemptNum);
 	   }
 	   readlen = sock -> read(incomingMessage, sizeof(incomingMessage));
     } while(!sock->timedout());
@@ -265,7 +264,7 @@ bool getResponse(C150DgmSocket *sock, string srcName, int fileNastiness,
 //check the received sha against the client sha
 void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, string srcName, 
 		char *srcDir, C150DgmSocket *sock, int fileNastiness,
-		char *argv[], uint32_t fileNum)
+		char *argv[], uint32_t fileNum, int attemptNum)
 {
 
 	checkMessage(readlen, msg, bufferlen);
@@ -273,12 +272,8 @@ void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, string srcName,
 	packetStruct checksumPacket;
 	memcpy(&checksumPacket, msg, bufferlen);
 	sha1 = checksumPacket.data;
- 
-	// cout <<"file + sha: " << fileName << " " << sha1 << '\n';
 
-    //TODO: check to make sure the packet does not come from previous transactions
 	string clientSha = computeSha(srcName, srcDir, fileNastiness);
-	cout << "SHA: " << clientSha << endl;
 	bool result;
 	std::string serversha = sha1;
 	if (clientSha == serversha){
@@ -289,18 +284,13 @@ void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, string srcName,
 	    result = false;
 	    cout << "TRANSFER FAILED" << endl;
 	}
-	if(!sendResult(result, srcName, sock, fileNastiness, argv, fileNum)){
-		cout << "RETRYING TRANSFER" << endl;
-		startCopy(srcName, sock, fileNastiness, argv, fileNum);
+    //send the result to the server and get acknowledgement
+	if(!sendResult(result, srcName, sock, fileNastiness, argv, fileNum, 
+			attemptNum)){
+		//if failed then resend file
+		startCopy(srcName, sock, fileNastiness, argv, fileNum, 
+			attemptNum + 1);
 	}
-	//int j = 0;
-    
-    //Execute end-to-end send result process, retry five times if no ack from server
-/*	while(!sendResult(result, srcName, sock) && j < 5)
-	{
-		j++; 
-	}
-*/
 }
 
 void checkMessage(ssize_t readlen, char *msg, ssize_t bufferlen){
@@ -318,6 +308,7 @@ void checkMessage(ssize_t readlen, char *msg, ssize_t bufferlen){
 
 }
 
+//compute the sha for the current file in the source directory
 string computeSha(string fileName, char * srcDir, int fileNastiness)
 {
     NASTYFILE inputFile(fileNastiness);
@@ -342,15 +333,14 @@ string computeSha(string fileName, char * srcDir, int fileNastiness)
         " errno=" << strerror(errno) << endl;
         exit(12);
     }
+    //get file size
     inputFile.fseek(0, SEEK_END);
     sourceSize = inputFile.ftell();
     buffer = (char *)malloc(sourceSize);
-    cout << sourceSize << " " << sizeof(*buffer) << endl;
     if(buffer == NULL) exit(1);
     inputFile.fseek(0, SEEK_SET);
+    //read entire file into buffer
     len = inputFile.fread(buffer, 1, sourceSize);
-    cout << sourceSize << " " << sizeof(*buffer) << endl;
-    // printf("%s  --- buffer \n", buffer);
 
     if (len != sourceSize) {
         cerr << "Error reading file " << (path+fileName).c_str() << 
@@ -362,7 +352,7 @@ string computeSha(string fileName, char * srcDir, int fileNastiness)
           " errno=" << strerror(errno) << endl;
         exit(16);
     }
-
+    //compute sha 
     SHA1((const unsigned char *)buffer, len, obuf);
     for (int i = 0; i < 20; i++)
     {
@@ -376,8 +366,10 @@ string computeSha(string fileName, char * srcDir, int fileNastiness)
     return sha1;
 }
 
+//sends either the filename and PASS or FAIL based on the checksum
 bool sendResult(bool result, string fileName, C150DgmSocket *sock, 
-		int fileNastiness, char *argv[], uint32_t fileNum)
+		int fileNastiness, char *argv[], uint32_t fileNum, 
+		int attemptNum)
 {	
     packetStruct resultPacket;
     string msg;
@@ -389,49 +381,17 @@ bool sendResult(bool result, string fileName, C150DgmSocket *sock,
     memcpy(msgBuffer, &resultPacket, sizeof(resultPacket));	
 	
     sock->write(msgBuffer, sizeof(msgBuffer) + 8);
-    int i = 0;
-    if(result) *GRADING << "File: " << fileName << " end-to-end check succeeded, attempt " 
-                    << i+1 <<endl;
-    else *GRADING << "File: " << fileName << " end-to-end check failed, attempt " 
-                    << i+1 <<endl;
-    if(getResponse(sock, fileName, fileNastiness, resultPacket, argv) && result)
+    if(result) *GRADING << "File: " << fileName << 
+                " end-to-end check succeeded, attempt " 
+                        << attemptNum <<endl;
+    else *GRADING << "File: " << fileName << 
+                " end-to-end check failed, attempt " 
+                        << attemptNum <<endl;
+    if(getResponse(sock, fileName, fileNastiness, resultPacket, argv, attemptNum) && result)
     {
 	cout << "end-to-end succeeded" << endl;
 	return true;
     }
     else cout << "end-to-end fails" << endl;
-    return false; 
- /*   readlen = sock -> read(incomingMessage, sizeof(incomingMessage));
-
-    while(sock->timedout() && i < 5){
-      	sock->write(msg.c_str(), msg.length() + 1);
-        i++;
-
-        if(result) *GRADING << "File: " << fileName << " end-to-end check succeeded, attempt " 
-                    << i+1 <<endl;
-        else *GRADING << "File: " << fileName << " end-to-end check failed, attempt " 
-                    << i+1 <<endl;
-
-      	readlen = sock -> read(incomingMessage,
-            			         sizeof(incomingMessage));
-    }
-
-    if( i >= 5){
-       	throw C150NetworkException("Server not responding.");
-    }
-
-	do {
-        //TODO: check if this is the final stage message from this transaction
-		checkMessage(readlen, incomingMessage, sizeof(incomingMessage));
-		std::string finalResponse = incomingMessage;
-        // cout << "FINAL RESPONSE: " << finalResponse << "\n";
-
-        //Check and make sure the final ack from server is the same from our last message on
-        // "a.txt/SUCCESS" of "a.txt/FAILURE"
-		if(finalResponse == msg) return true;
-        readlen = sock -> read(incomingMessage, sizeof(incomingMessage));
-	}while(!sock->timedout());
-
-	return false;	
-*/	
+    return false; 	
 } 
