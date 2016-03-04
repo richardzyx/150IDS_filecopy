@@ -201,6 +201,7 @@ bool renameTemp(packetStruct packet, char *argv[])
 			<< path << " errno=" << strerror(errno) << endl;
 			exit(1);
 		}
+        cout << "File " << fileName << " copied successfully"<< endl;
 		return true;
 	}
 	return false;				
