@@ -34,6 +34,7 @@ struct packetStruct {
 struct currentFile{
     uint32_t fileNum;
     char fileName[255];
+    bool renamed;
     bool readyForNew; //are we ready for a new file
 };
 
@@ -45,6 +46,7 @@ void listen(char* argv[], C150DgmSocket *sock, int fileNastiness,
 void makePacket(packetStruct *packet, char flag, char ackFlag, uint32_t fileNum, 		uint32_t fileOffset, const char* data);
 void writeData(packetStruct packet, char *argv[], int fileNastiness, 
 		currentFile *file, NASTYFILE *outputFile);
+bool renameTemp(packetStruct packet, char *argv[]);
 
 int main(int argc, char *argv[])
 {
@@ -68,6 +70,7 @@ int main(int argc, char *argv[])
 	//sock -> turnOnTimeouts(300);
 
 	file.readyForNew = true;
+	file.renamed = false;
 	NASTYFILE outputFile(fileNastiness);
 	while(1){
             listen(argv, sock, fileNastiness, &file, &outputFile);
@@ -114,6 +117,7 @@ void listen(char * argv[], C150DgmSocket *sock,  int fileNastiness,
 	    }
 	    return;
 	}
+	file -> renamed = false;
 	file -> fileNum = incomingPacket.fileNum;
 	strcpy(file -> fileName, incomingPacket.data);
 	file -> readyForNew = false;
@@ -121,7 +125,7 @@ void listen(char * argv[], C150DgmSocket *sock,  int fileNastiness,
 	std::string targetDir = argv[targetDirArg];
 	if(targetDir[targetDir.length() - 1] != '/') targetDir += '/';
     	std::string fileName = file -> fileName;
-    	string path = targetDir + fileName;
+    	string path = targetDir + fileName + ".TMP";
 	void *fopenretval;
 	fopenretval = outputFile->fopen(path.c_str(), "wb+"); //open for read and write binary
 	if (fopenretval == NULL) {
@@ -163,6 +167,12 @@ void listen(char * argv[], C150DgmSocket *sock,  int fileNastiness,
     else if(incomingPacket.flag == 'C'){
 	cout << "END-TO-END RESULTS RECEIVED--RESULT: " 
 	<< incomingPacket.data << endl;
+	//TODO: if rename is false then have client resend file
+	if(!(file -> renamed)){
+		if(renameTemp(incomingPacket, argv)){
+			file -> renamed = true;
+		}
+	}
 	packetStruct responsePacket;
 	makePacket(&responsePacket, 'A', 'C', incomingPacket.fileNum, 0, 0);
 	char msgBuffer[sizeof(responsePacket)];
@@ -171,7 +181,7 @@ void listen(char * argv[], C150DgmSocket *sock,  int fileNastiness,
 	file -> readyForNew = true;
     }
     else if(incomingPacket.flag == 'D'){
-	cout << "DATA PACKET RECEIVED" << endl;
+	//cout << "DATA PACKET RECEIVED" << endl;
 	writeData(incomingPacket, argv, fileNastiness, file, outputFile);
 	packetStruct responsePacket;
 	makePacket(&responsePacket, 'A', 'D', incomingPacket.fileNum,
@@ -195,6 +205,38 @@ void listen(char * argv[], C150DgmSocket *sock,  int fileNastiness,
         string response = incoming + '/' + checkFiles(sock, argv[targetDirArg], incoming, fileNastiness);
         sock -> write(response.c_str(), response.length()+1);
     }*/
+}
+
+bool renameTemp(packetStruct packet, char *argv[])
+{
+	std::string data = packet.data;
+	string fileName = "";
+	string result = "";
+	bool isFileName = true;
+	for(unsigned int i = 0; i < data.length(); i++){
+		if(data[i] == '/'){
+			isFileName = false;
+			continue;
+		}
+		if(isFileName){
+			fileName += data[i];
+		}
+		else
+			result += data[i];
+	}
+	std::string targetDir = argv[targetDirArg];
+	string tempPath = targetDir + fileName + ".TMP";
+	if(result == "PASS"){
+		string path = targetDir + fileName;
+		int renameretval = rename(tempPath.c_str(), path.c_str());
+		if (renameretval != 0){
+			cerr << "Error renaming " << tempPath << " to " 
+			<< path << " errno=" << strerror(errno) << endl;
+			exit(1);
+		}
+		return true;
+	}
+	return false;				
 }
 
 void writeData(packetStruct packet, char *argv[], int fileNastiness, 
@@ -287,12 +329,12 @@ string computeSha(string fileName, char *targetDir, int fileNastiness)
     std::string path = targetDir;
     //add '/' to end of path if it is not there
     if(path[path.length() - 1] != '/') path += '/';
-
+    string tempPath = path + fileName + ".TMP";
     // const char *full_path = (path+fileName).c_str();
-    printf ("SHA1 (\"%s\") is computed\n ", (path+fileName).c_str());
+    printf ("SHA1 (\"%s\") is computed\n ", tempPath.c_str());
      
        
-    fopenretval = inputFile.fopen((path+fileName).c_str(), "rb");
+    fopenretval = inputFile.fopen(tempPath.c_str(), "rb");
 
 
     if (fopenretval == NULL) {
@@ -322,6 +364,7 @@ string computeSha(string fileName, char *targetDir, int fileNastiness)
     SHA1((const unsigned char *)buffer, len, obuf);
     for (int i = 0; i < 20; i++)
     {
+	printf( "%02x", (unsigned int) obuf[i]);
         sprintf (sha1hex + (i*2), "%02x", (unsigned int) obuf[i]);
     }
     printf ("\n");

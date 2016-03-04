@@ -16,19 +16,29 @@
 
 using namespace std;          // for C++ std library
 using namespace C150NETWORK;  // for all the comp150 utilities
-
+//index for each command line argument
 const int serverArg = 1;
 const int netNastinessArg = 2;
 const int fileNastinessArg = 3;
 const int srcDirArg = 4;
+//Max amount of data to send in each packet
 const size_t MAX_DATA_BYTES = 480;
+//This struct holds all of the information for each packet
 struct packetStruct {
-    char flag;
+    //flags include 'S' for start packet 'A' for acknowledge 'D' for data
+    //'E' for end and 'C' for checksum
+    char flag;  
+    //this is only used in an Ack packet and tells what type of packet is 
+    //being acknowledged
     char ackFlag;
+    //Each file has a unique file number
     uint32_t fileNum;
+    //This multiplied by MAX_DATA_BYTES gives where to write data into a file
     uint32_t fileOffset;
+    //This is the number of data bytes sent
     size_t numBytes;
-    char data[MAX_DATA_BYTES]; //this size makes the packet 508 bytes leaving room for NULL termination
+    //this size makes the packet 504 bytes leaving room for NULL termination
+    char data[MAX_DATA_BYTES];
 };
 
 void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, string srcName, 
@@ -49,9 +59,9 @@ void makePacket(packetStruct *packet, char flag, char ackFlag, uint32_t fileNum,
                 uint32_t fileOffset, size_t numBytes, const char* data);
 void sendFile(string srcName, C150DgmSocket *sock, int fileNastiness,
                 char *argv[], uint32_t fileNum);
+
 int main(int argc, char *argv[])
 {
-	cout << sizeof(packetStruct) << endl;
     GRADEME(argc, argv);
 	if (argc != 5) {
 		fprintf(stderr, "Correct syntax is: %s <servername> <networknastiness> <filenastiness> <srcdir>\n", argv[0]);
@@ -64,11 +74,9 @@ int main(int argc, char *argv[])
         // Setting up Socket with nastiness in network
 		C150DgmSocket *sock = new C150NastyDgmSocket(netNastiness);
 		sock -> setServerName(argv[serverArg]);
-		sock -> turnOnTimeouts(300);
-	        fileCopy(sock, argv);
-        // Check to make sure SRC is not NULL			
-		// Get sha1 of file and send to server
-		// wait for response saying files match or not
+		sock -> turnOnTimeouts(100);
+        //execute main file copy
+	    fileCopy(sock, argv);
 	
 	}
 	catch (C150NetworkException e){
@@ -76,6 +84,7 @@ int main(int argc, char *argv[])
 	}
 	return 0;
 }
+//Loops through files in the source directory and passes them to be copied
 void fileCopy(C150DgmSocket *sock, char *argv[])
 {
     DIR *SRC;
@@ -94,14 +103,14 @@ void fileCopy(C150DgmSocket *sock, char *argv[])
                     (strcmp(sourceFile->d_name, "..")  == 0 ))
             continue;
             
-        // +1 for null character
+        // Copy this file
         startCopy(srcName, sock, fileNastiness, argv, fileNum);
-	cout << "after startCopy" << endl;
-	fileNum++;
- 
+	   fileNum++;
     }
 }
 
+//send the initial start packet for this file to the server
+//calls sendFile and endCopy when sendFile has finished
 void startCopy(string srcName, C150DgmSocket *sock, int fileNastiness,
 		 char *argv[], uint32_t fileNum)
 {
@@ -109,17 +118,19 @@ void startCopy(string srcName, C150DgmSocket *sock, int fileNastiness,
     packetStruct packet;
     makePacket(&packet, 'S', 0, fileNum, 0, sizeof(msg),  msg);
     char msgBuffer[sizeof(packet)];
+    //copy the packet into a msgbuffer to be sent
     memcpy(msgBuffer, &packet, sizeof(packet));
-    sock -> write(msgBuffer, sizeof(msgBuffer) + 8);
+    //since our packets are 504 Bytes the + 8 makes the size 512 and
+    //ensures NULL termination
+    sock -> write(msgBuffer, sizeof(msgBuffer) + 8); 
     *GRADING << "File: " << srcName << ", beginning transmission, attempt " 
             << 1 <<endl;
-    while(!getResponse(sock, srcName, fileNastiness, packet, argv)){
-	cout << "received unexpected packet(s)" << endl;
-    }
-    cout << "startCopy before sendFile" << endl;
+    //read packets until we get an ack for this start packet
+    while(!getResponse(sock, srcName, fileNastiness, packet, argv));
     sendFile(srcName, sock, fileNastiness, argv, fileNum);
     endCopy(srcName, sock, fileNastiness, argv, fileNum);
 }
+//Sends the file over to the server
 void sendFile(string srcName, C150DgmSocket *sock, int fileNastiness,
 		char *argv[], uint32_t fileNum)
 {
@@ -128,19 +139,23 @@ void sendFile(string srcName, C150DgmSocket *sock, int fileNastiness,
     size_t sourceSize;
     char *buffer;
     size_t len;
-	
+	//get the full path for the file
     std::string path = argv[srcDirArg];
     if(path[path.length() - 1] != '/') path += '/';
+    //open the file for reading
     fopenretval = inputFile.fopen((path+srcName).c_str(), "rb");
     if (fopenretval == NULL) {
 	cerr << "Error opening input file " << (path+srcName).c_str() <<
 	    " errno=" << strerror(errno) << endl;
 	exit(12);
     }
+    //this tells us the size of the file
     inputFile.fseek(0, SEEK_END);
     sourceSize = inputFile.ftell();
+    //create a buffer large enough for the entire file
     buffer = (char*)malloc(sourceSize);
     if(buffer == NULL) exit(1);
+    //move pointer back to the beginning of the file
     inputFile.fseek(0, SEEK_SET);
     len = inputFile.fread(buffer, 1, sourceSize);
     if(len != sourceSize) {
@@ -155,22 +170,28 @@ void sendFile(string srcName, C150DgmSocket *sock, int fileNastiness,
     }
     uint32_t i = 0;
     int bytestosend = MAX_DATA_BYTES;
+    //send data until the entire file has been sent
     while(i * MAX_DATA_BYTES <= len){
-	if((i+1)* MAX_DATA_BYTES > len){
-		bytestosend = len - (i*MAX_DATA_BYTES);
-	}
-	char data[bytestosend];
-	memcpy(data, buffer + (i*MAX_DATA_BYTES), bytestosend);
-	packetStruct dataPacket;
-	makePacket(&dataPacket, 'D', 0, fileNum, i, 
-			sizeof(data),  data);
-	char msgBuffer[sizeof(dataPacket)];
-	memcpy(msgBuffer, &dataPacket, sizeof(dataPacket));
-	sock -> write(msgBuffer, sizeof(msgBuffer) + 8);
-	while(!getResponse(sock, srcName, fileNastiness, dataPacket, argv)); 
-   	i++;
+        //if there is less than MAX_DATA_BYTES left to send then
+        //only send what is left
+	    if((i+1)* MAX_DATA_BYTES > len){
+	       bytestosend = len - (i*MAX_DATA_BYTES);
+	    }
+	    char data[bytestosend];
+        //copy file data at offset (i*MAX_DATA_BYTES) to data buffer
+	    memcpy(data, buffer + (i*MAX_DATA_BYTES), bytestosend);
+	    packetStruct dataPacket;
+	    makePacket(&dataPacket, 'D', 0, fileNum, i, 
+		          sizeof(data),  data);
+	    char msgBuffer[sizeof(dataPacket)];
+	    memcpy(msgBuffer, &dataPacket, sizeof(dataPacket));
+	    sock -> write(msgBuffer, sizeof(msgBuffer) + 8);
+        //wait to get response for this packet
+	    while(!getResponse(sock, srcName, fileNastiness, dataPacket, argv)); 
+   	    i++;
     }
 }
+//send end packet for this file 
 void endCopy(string srcName, C150DgmSocket *sock, int fileNastiness, 
 		char *argv[], uint32_t fileNum)
 {
@@ -183,6 +204,7 @@ void endCopy(string srcName, C150DgmSocket *sock, int fileNastiness,
     getResponse(sock, srcName, fileNastiness, packet, argv);
 }
 
+//create a packet with the given fields
 void makePacket(packetStruct *packet, char flag, char ackFlag, uint32_t fileNum,
 		uint32_t fileOffset, size_t numBytes,  const char* data)
 {
@@ -194,6 +216,7 @@ void makePacket(packetStruct *packet, char flag, char ackFlag, uint32_t fileNum,
     strcpy(packet -> data, data);
 }
 
+//get response from server that acknowledges the packet that was just sent
 bool getResponse(C150DgmSocket *sock, string srcName, int fileNastiness,
 		 packetStruct packet, char *argv[])
 {
@@ -262,6 +285,7 @@ void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, string srcName,
 
     //TODO: check to make sure the packet does not come from previous transactions
 	string clientSha = computeSha(srcName, srcDir, fileNastiness);
+	cout << "SHA: " << clientSha << endl;
 	bool result;
 	std::string serversha = sha1;
 	if (clientSha == serversha){
@@ -272,7 +296,10 @@ void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, string srcName,
 	    result = false;
 	    cout << "TRANSFER FAILED" << endl;
 	}
-	sendResult(result, srcName, sock, fileNastiness, argv, fileNum);
+	if(!sendResult(result, srcName, sock, fileNastiness, argv, fileNum)){
+		cout << "RETRYING TRANSFER" << endl;
+		startCopy(srcName, sock, fileNastiness, argv, fileNum);
+	}
 	//int j = 0;
     
     //Execute end-to-end send result process, retry five times if no ack from server
