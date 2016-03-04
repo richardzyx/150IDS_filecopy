@@ -238,38 +238,31 @@ bool getResponse(C150DgmSocket *sock, string srcName, int fileNastiness,
     }
     //do if not timedout, and make sure got the right type of message
     do{
-	//cout << "In the do while getResponse loop" << endl;
         packetStruct incomingPacket;
-	memcpy(&incomingPacket, incomingMessage, sizeof(incomingMessage));
-	//cout << incomingMessage << " <- incomingMessage " << endl;
-	if(incomingPacket.flag == 'A'){
-		if(incomingPacket.ackFlag == packet.flag && 
-		    incomingPacket.fileNum == packet.fileNum &&
-		    incomingPacket.fileOffset == packet.fileOffset){
-			return true;
-		}
-	}
-	else if(incomingPacket.flag == 'C'){
-	    cout << "in C flag getResponse function" << endl;	
-            //TODO: add check to first stage messages
-            //We assume 0 nastiness or none duplicate packet in the network
+	    memcpy(&incomingPacket, incomingMessage, sizeof(incomingMessage));
+	    if(incomingPacket.flag == 'A'){
+		  if(incomingPacket.ackFlag == packet.flag && 
+		      incomingPacket.fileNum == packet.fileNum &&
+		      incomingPacket.fileOffset == packet.fileOffset){
+			    return true;
+		  }
+	   }
+	   else if(incomingPacket.flag == 'C'){
             *GRADING << "File: " << srcName <<
 	 " transmission complete, waiting for end-to-end check, attempt " 
             << i+1 <<endl;
-            //TODO: add unique ID for this transaction for all following interactions
-            //TODO: pass filenastiness
+            //check received sha against sha of file we copied
             checkSha(readlen, incomingMessage,
                 sizeof(incomingMessage), srcName, 
                 argv[srcDirArg], sock, fileNastiness, argv, 
-		incomingPacket.fileNum);
-	}
-	readlen = sock -> read(incomingMessage, sizeof(incomingMessage));
-        //TODO: read until we read the expected packet message, separate stages, add flags
-        //TODO: should proceed only when read SHA1 message
+		        incomingPacket.fileNum);
+	   }
+	   readlen = sock -> read(incomingMessage, sizeof(incomingMessage));
     } while(!sock->timedout());
     return false;
 }
 
+//check the received sha against the client sha
 void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, string srcName, 
 		char *srcDir, C150DgmSocket *sock, int fileNastiness,
 		char *argv[], uint32_t fileNum)
