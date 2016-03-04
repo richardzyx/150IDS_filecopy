@@ -1,0 +1,213 @@
+<!DOCTYPE HTML>
+<!-- 
+ **********************************************************
+
+             TUFTS COMP 150-IDS HOMEWORK ASSIGNMENT
+
+        Fill in your name, e-mail and answers to questions
+        in the sections provided below.
+
+          All questions are marked up: <li class="q">
+          All answers are marked up:   <li class="a">
+
+
+     PLEASE DO NOT MODIFY ANY THING OTHER THAN THE 
+     NAME, E-MAIL, AND ANSWER FIELDS (you may also add
+     css declarations in the <head> if you need them,
+     but usually you won't.
+
+ **********************************************************
+ -->
+
+
+<html>
+<head>
+<meta charset="utf-8"> 
+<title>Tufts COMP 150-IDS Assignment &#8212; File Copy Project Report</title>
+<link rel="stylesheet" type="text/css" href="http://www.cs.tufts.edu/comp/150IDS/style/homework.css" />
+</head>
+
+<body class="homework">
+
+
+<!-- ******************************************************
+	   YOU MUST FILL IN YOUR NAME, UTLN AND EMAIL BELOW!!
+         (You may copy this from an earlier assignment
+                         if you like)
+
+     ****************************************************** -->
+
+
+<div class="student">
+<p>
+<span class="label">Student1 name: </span>
+Yuxuan Zhang
+<br>
+
+<span class="label">UTLN: </span>
+yzhang17
+<br>
+
+<span class="label">E-mail: </span>
+<!-- DON'T FORGET UP UPDATE THE MAILTO: URI BELOW ALONG WITH
+     YOUR EMAIL IN THE ANCHOR.  IT SHOULD LOOK LIKE:
+ <a href="mailto:lady.gaga@cs.tufts.edu">lady.gaga@cs.tufts.edu</a>
+--> 
+
+<a href="mailto:yuxuan.zhang@tufts.edu">yuxuan.zhang@tufts.edu</a>
+<br>
+<br>
+<br>
+<span class="label">Student2 name: </span>
+Kenneth Crowell
+<br>
+<span class="label">UTLN: </span>
+kcrowe01
+<br>
+
+<span class="label">E-mail: </span>
+<!-- DON'T FORGET UP UPDATE THE MAILTO: URI BELOW ALONG WITH
+     YOUR EMAIL IN THE ANCHOR.  IT SHOULD LOOK LIKE:
+ <a href="mailto:lady.gaga@cs.tufts.edu">lady.gaga@cs.tufts.edu</a>
+--> 
+
+<a href="mailto:Kenneth.Crowell@tufts.edu">Kenneth.Crowell@tufts.edu</a>
+
+<br>
+</p>
+</div>
+
+
+
+
+<div class="UpperLeftHeader">
+<p>Tufts COMP 150-IDS (Spring 2016):
+<br>
+Internet-scale Distributed Systems</p>
+</div>
+
+
+<!-- - - - - - - - - - - - - - - - - - - - - - - -
+		HOMEWORK TITLE
+  - -  - - - - - - - - - - - - - - - - - - - - - - -->
+
+
+<div class="headerdiv">
+<h1>
+Tufts COMP 150-IDS:<br>
+File Copy Project Report
+</h1>
+</div>
+
+<!-- ******************************************************
+
+              PLEASE ANSWER QUESTIONS IN THE SECTIONS
+	      LABELED class="a" (for answer)
+
+     ****************************************************** -->
+
+
+
+
+<div class="main">
+
+<h2 id="questions">Questions</h2>
+<!-- - - - - - - - - - - - - - - - - - - - - - - -
+		QUESTION
+  - -  - - - - - - - - - - - - - - - - - - - - - - -->
+<div class="qa">
+
+<ol class="qa">
+<li class="q">What are the highest "nastiness" levels at which you believe your program will
+successfully copy an entire directory full of files? (We will test your programs using those levels
+on both the client and the server; if all you got working
+was the end-to-end check, then please tell us how to test your work. <em>Also: if high network nastiness messes up your ability to deal with file nastiness, you can give us two pairs: e.g. Test my client and server with networknastiness=4 and filenastiness=1 or networknastiness=0 and filenastiness=3)</em></li>
+<li class="a">
+<!-- replace XX and YY with the actual values -->
+Please test my client and server with: networknastiness=2 and filenastiness=3.
+</li>
+
+<li class="q">Is there anything else we should
+know about testing your code, or what you expect it to do
+(beyond what's explained in your report below)?</li>
+<li class="a">
+Our program handles higher level nastiness on a random occurrence, but we have found that if we mismatch the file nastiness on client and server, we will have higher chance and confidence of functional correctness for our program.
+</li>
+
+<li class="q">Did you get help from anyone other than your teammate? If "yes", then briefly explain who helped you and how.</li>
+<li class="a">
+No.
+</li>
+
+
+<li class="q">(optional) Do you have any other comments on this assignment (e.g. was it worthwhile, what did you learn from it, do you have suggestions for improvment if the course is offered again)?</li>
+<li class="a">
+...your answer here...
+</li>
+
+</ol>
+
+<!-- * * * * * * * * * * * * * * * * * * * * * -->
+<!--            REPORT GOES HERE               -->
+<!-- * * * * * * * * * * * * * * * * * * * * * -->
+
+<h2 id="reportbody">Report</h2>
+
+<!-- Delete the entire paragraph below 
+     and replace it with your report. (Do NOT
+     keep the color:grey styling on your report! :-) -->
+<h3 id="reportbody">Overview</h3>
+<p>We have successfully implemented the file copy and end-to-end check with 99.99% confidence on functional correctness when network nastiness is
+set to 2 and file nastiness is set to 3. Our program would also work at an unpredictable rate when network nastiness is set higher, but we do not have 
+enough time and flexibility in code structure to completely fix this problem. All aspects of the assignments have been implemented.</p>
+
+<h3 id="reportbody">Case Analysis</h3>
+<p>Our program works in network nastiness 2 because 2 sends duplicated packets consecutively, and our checking mechanism is functional in this situation. When nastiness is tuned up to 3 and above, duplicate packets will show up in next file's transmission, and our transmission function do not 
+handle this situation well. The server keeps record of the current file's serialized number it is working on, and will only react to the 
+packet with the current file number. Any file that does not have the correct file number will be ignored. If the file number is correct, the server will write the packet's data regardless of the sequence of incoming packets.</p>
+
+<p>We send our packets in the following struct:</p>
+
+<code><p>struct packetStruct {</p>
+    <p>char flag;</p>
+    <p>char ackFlag;</p>
+    <p>uint32_t fileNum;</p>
+    <p>uint32_t fileOffset;</p>
+<p>size_t numBytes;</p>
+<p>char data[MAX_DATA_BYTES]; //this size makes the packet 508 bytes leaving room for NULL termination</p>
+<p>};</p></code>
+
+<p>Every packet include all the fields needed for all transmission, and the program determine what procedure to call depending on the <code>flag</code> and <code>ackFalg</code> characters that present the stage and the acknowledging packet's stage. The <code>ackFlag</code> is used for differentiate different types of server's acknowledgments. We assigned the flags according to different stages:</p>
+
+<p><code>S</code>: Notify the server to start file copy procedure.</p>
+<p><code>D</code>: A packet containing the data of the current file's data.</p>
+<p><code>E</code>: Finish the file copy procedure and start the end-to-end check.</p>
+<p><code>C</code>: Check SHA1 value. For server, sending C flag packet contains the SHA1; for client, sending C flag packet contains success or failed message for this end-to-end check.</p>
+<p><code>A</code>: Acknowledge the client's response on end-to-end check. Server only.</p>
+
+<p>By checking for <code>flag</code>, <code>ackFlag</code>, and <code>fileNum</code>, we make sure we only respond to current file's packet. If we have duplicate packets in one file transmission, we write both times to alleviate the server's responsibility on preserving packets' uniqueness. We
+ make sure that only when both SHA1 are identical from client and server's files, we delete the .TMP suffix. But we had unexpected situation where
+ the client's file nastiness actually caused client computer the same wrong SHA1 when copying and reading the file that is correctly copied to server's disk, and we do not have a good solution under this circumstance. When this random event does not happen, our function works correctly. We also made sure that if one packet is lost during transmission, we time out the client and resend the packet. We implement the same retries on file level when end-to-end check fails.</p>
+
+<h3 id="reportbody">Future Improvements</h3>
+<p>We commented on possible solutions to the problems stated above. Some of the solutions will require major overhaul of the current structure, and
+ we can only save those for future iterations. In our testings we also found out that by mismatching the file nastiness level on client and server,
+ even on high level nastiness, we are much more likely to get successful results. We assume this is due to the random but generalized nasty file
+ implementation.</p>
+
+<h3 id="reportbody">GRADELOG</h3>
+<p></p>
+
+<h3 id="reportbody">Conclusion</h3>
+<p>We have learned a substantial amount of knowledge when dealing with low level socket transmission and building work flow for accurate file copy
+ procedure. We also learned to appreciate the end-to-end principle which drastically decreased overall checks for correctness. We are now also 
+ aware of the power of fickle disk reading and writing errors.</p>
+
+We confirm that both team members were present for (substantially) all coding, and that both worked out the design together.
+
+
+
+</div>
+</div>
+</body>
+</html>
