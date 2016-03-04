@@ -59,6 +59,7 @@ void makePacket(packetStruct *packet, char flag, char ackFlag, uint32_t fileNum,
                 uint32_t fileOffset, size_t numBytes, const char* data);
 void sendFile(string srcName, C150DgmSocket *sock, int fileNastiness,
                 char *argv[], uint32_t fileNum, int attemptNum);
+bool shacmp(char *buffer, char *buffer2, size_t sourceSize);
 
 int main(int argc, char *argv[])
 {
@@ -138,6 +139,7 @@ void sendFile(string srcName, C150DgmSocket *sock, int fileNastiness,
     void *fopenretval;
     size_t sourceSize;
     char *buffer;
+    char *buffer2;
     size_t len;
 	//get the full path for the file
     std::string path = argv[srcDirArg];
@@ -154,10 +156,17 @@ void sendFile(string srcName, C150DgmSocket *sock, int fileNastiness,
     sourceSize = inputFile.ftell();
     //create a buffer large enough for the entire file
     buffer = (char*)malloc(sourceSize);
+    buffer2 = (char*)malloc(sourceSize);
     if(buffer == NULL) exit(1);
-    //move pointer back to the beginning of the file
-    inputFile.fseek(0, SEEK_SET);
-    len = inputFile.fread(buffer, 1, sourceSize);
+    bool readerror = true;
+    while(readerror){
+	//move pointer back to the beginning of the file
+	inputFile.fseek(0, SEEK_SET);
+   	len = inputFile.fread(buffer, 1, sourceSize);
+	inputFile.fseek(0, SEEK_SET);
+	inputFile.fread(buffer2, 1, sourceSize);
+	if(shacmp(buffer, buffer2, sourceSize)) readerror = false;
+    }
     if(len != sourceSize) {
 	cerr << "Error reading file " << (path+srcName).c_str() <<
             "  errno=" << strerror(errno) << endl;
@@ -278,11 +287,12 @@ void checkSha(ssize_t readlen, char *msg, ssize_t bufferlen, string srcName,
 	std::string serversha = sha1;
 	if (clientSha == serversha){
 	    result = true;
-	    cout << "TRANSFER SUCCEEDED" << endl;
+	    cout << srcName << " end-to-end check SUCCEEDS -- informing server"
+		 << endl;
 	}
 	else{
 	    result = false;
-	    cout << "TRANSFER FAILED" << endl;
+	    cout << srcName << " end-to-end check FAILS -- retrying" << endl;
 	}
     //send the result to the server and get acknowledgement
 	if(!sendResult(result, srcName, sock, fileNastiness, argv, fileNum, 
@@ -324,7 +334,6 @@ string computeSha(string fileName, char * srcDir, int fileNastiness)
     //add '/' to end of path if it is not there
     if(path[path.length() - 1] != '/') path += '/';
 
-    printf ("SHA1 (\"%s\") is computed\n ", (path+fileName).c_str());
        
     fopenretval = inputFile.fopen((path+fileName).c_str(), "rb");
 
@@ -358,7 +367,6 @@ string computeSha(string fileName, char * srcDir, int fileNastiness)
     {
         sprintf (sha1hex + (i*2), "%02x", (unsigned int) obuf[i]);
     }
-    printf ("\n");
 
     free(buffer);
 
@@ -389,9 +397,19 @@ bool sendResult(bool result, string fileName, C150DgmSocket *sock,
                         << attemptNum <<endl;
     if(getResponse(sock, fileName, fileNastiness, resultPacket, argv, attemptNum) && result)
     {
-	cout << "end-to-end succeeded" << endl;
 	return true;
     }
-    else cout << "end-to-end fails" << endl;
     return false; 	
+}
+
+bool shacmp(char *buffer, char *buffer2, size_t sourceSize)
+{
+    unsigned char shabuf[20];
+    unsigned char shabuf2[20];
+    SHA1((const unsigned char*)buffer, sourceSize, shabuf);
+    SHA1((const unsigned char*)buffer2, sourceSize, shabuf2);
+    for(int i = 0; i < 20; i++){
+	if(shabuf[i] != shabuf2[i]) return false;
+    }
+    return true;       
 } 
